@@ -121,7 +121,7 @@ def get_data(conf, read_in_weight, read_in_bias):
     # apply padding
 
     current_len = transformed_zs.shape[1]
-    max_len = conf.model.n_embd # HORRID tech debt I don't get
+    max_len = min(conf.model.n_embd, conf.model.n_positions * 2) # HORRID tech debt I don't get
     pad_len = max(max_len - current_len, 0)
 
     

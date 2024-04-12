@@ -9,7 +9,7 @@ model:
 out_dir: ./models
 test_run: false
 training:
-  batch_size: 128
+  batch_size: 512
   curriculum:
     dims:
       end: 20
