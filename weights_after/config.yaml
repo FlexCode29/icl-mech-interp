@@ -1,0 +1,41 @@
+model:
+  family: gpt2
+  n_dims: 20
+  n_embd: 128
+  n_head: 2
+  n_layer: 3
+  n_positions: 101
+  dropout: 0
+out_dir: ./models
+test_run: false
+training:
+  batch_size: 128
+  curriculum:
+    dims:
+      end: 20
+      inc: 1
+      interval: 1000000000
+      start: 20
+    points:
+      end: 41
+      inc: 1
+      interval: 1000000000
+      start: 41
+  data: gaussian
+  keep_every_steps: 100000
+  keep_every_steps_until_phase_transition: 1000 
+  learning_rate: 0.0001
+  num_tasks: null
+  resume_id: null
+  save_every_steps: 500
+  task: linear_regression
+  task_kwargs: {}
+  train_steps: 500000
+  num_training_examples: null
+  weight_decay: 0
+wandb:
+  entity: marcomolinari4
+  log_every_steps: 500
+  name: null
+  notes: ''
+  project: train toy regressor
