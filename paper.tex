@@ -1,0 +1,458 @@
+\documentclass{article}
+
+
+% if you need to pass options to natbib, use, e.g.:
+%     \PassOptionsToPackage{numbers, compress}{natbib}
+% before loading neurips_2024
+
+
+% ready for submission
+%\usepackage{neurips_2024}
+
+
+% to compile a preprint version, e.g., for submission to arXiv, add add the
+% [preprint] option:
+%     \usepackage[preprint]{neurips_2024}
+\usepackage[preprint]{neurips_2024}
+
+% to compile a camera-ready version, add the [final] option, e.g.:
+%     \usepackage[final]{neurips_2024}
+
+
+% to avoid loading the natbib package, add option nonatbib:
+%    \usepackage[nonatbib]{neurips_2024}
+
+
+\usepackage[utf8]{inputenc} % allow utf-8 input
+\usepackage[T1]{fontenc}    % use 8-bit T1 fonts
+\usepackage{hyperref}       % hyperlinks
+\usepackage{url}            % simple URL typesetting
+\usepackage{booktabs}       % professional-quality tables
+\usepackage{amsfonts}       % blackboard math symbols
+\usepackage{nicefrac}       % compact symbols for 1/2, etc.
+\usepackage{microtype}      % microtypography
+\usepackage{xcolor}         % colors
+\usepackage{graphicx}
+\graphicspath{{Images/}}
+
+
+
+\title{Numerical Patching of Transformers for In-Context Linear Regression Finds Normalizing Heads}
+
+
+% The \author macro works with any number of authors. There are two commands
+% used to separate the names and addresses of multiple authors: \And and \AND.
+%
+% Using \And between authors leaves it to LaTeX to determine where to break the
+% lines. Using \AND forces a line break at that point. So, if LaTeX puts 3 of 4
+% authors names on the first line, and the last on the second line, try using
+% \AND instead of \And before the third author name.
+
+
+\author{%
+  LSE.AI\\
+  London School of Economics and Political Science\\
+  London, UK, Houghton St\\\
+  \texttt{lseai.org} \\
+  % examples of more authors
+  % \And
+  % Coauthor \\
+  % Affiliation \\
+  % Address \\
+  % \texttt{email} \\
+  % \AND
+  % Coauthor \\
+  % Affiliation \\
+  % Address \\
+  % \texttt{email} \\
+  % \And
+  % Coauthor \\
+  % Affiliation \\
+  % Address \\
+  % \texttt{email} \\
+  % \And
+  % Coauthor \\
+  % Affiliation \\
+  % Address \\
+  % \texttt{email} \\
+}
+
+
+\begin{document}
+
+
+\maketitle
+
+
+\begin{abstract}
+  We deploy mechanistic interpretability teqniques on transformers used for in-context linear regression \citep{garg_2023_what}. We build on the intuition that transformers can learn in context by gradient descent \citep{vonoswald_2023_transformers}, and we probe the coefficients of learned function classes from the MLPs. We further obtain a computational graph for the model trough Automated Circuit Discovery \citep{conmy_2023_towards}. We then perform a causal intervention to extract the function being implemented trough the model's most significant computational edge, the OV matrix of attention head zero of the first transformer block. We find the head performs a normalization of the labels provided in context. We then define a norm score to quantify this behavior, and find that such heads play a role in the model's phase transition during training. We finally find norm heads in larger models
+\end{abstract}
+
+
+\section{Introduction}
+
+Transformers \citep{vaswani_2017_attention} have emerged as the dominant machine learning architecture across a variety of task, and the resulting large language models have even been proposed as an early (incomplete) generally intelligent system \citep{bubeck_2023_sparks}.
+In context learning \citep{brown_2020_language} has significantly contributed to their success by boosting few-shot performance, and enabling language models to perform a variety of tasks at a human level. Outside of language, Transformers are able to learn entire function classes in context \citep{garg_2023_what}, and perform in line with state of the art methods such as ordinary least squares for linear regression. This can be regarded as an instance of meta-learning \citep{thrun_1998_learning}, as the model learns how to teach itself an unseen function based on provided examples. Interestingly, there is a phase transition in the loss of the model when it’s trained on sequences of points with more than 20 dimensions. It has been shown that transformers learn to perform gradient descent for linear regression \citep{vonoswald_2023_transformers}, and that they perform a gradient update with every forward pass. Grokking \citep{power_2022_grokking}, another algorithmic problem displaying a phase transition, has recently been investigated through the lens of mechanistic interpretability \citep{nanda_2023_progress}. We undertake to use similar techniques to investigate the behavior of the model, and how it evolves as it undergoes its phase transition. Our contributions include adapting classic intepretability techniques such as activation patching \citep{zhang_2023_towards} to numerical (non token based) tranformers, and conducting the first attention head case study in a numerical transformer. Other case studies include induction heads \citep{olsson_2022_incontext} and copy suppression heads \citep{mcdougall_2023_copy}.
+
+\section{Mechanistic Interpretability}
+Mechanistic interpretability is an emerging methodology in AI research aimed at understanding the underlying mechanisms and the "reasoning" processes of large language models (LLMs), particularly transformers. This approach diverges from traditional interpretability methods that often focus on correlations and general input-output relationships by delving into the exact computations and transformations occurring within the model's architecture \citep{nanda_2023_progress}.
+At its core, mechanistic interpretability involves dissecting the neural network to isolate individual components—such as specific neurons, layers, or attention heads—and studying their roles in processing inputs. This is achieved through techniques such as activation patching \citep{zhang_2023_towards}, where inputs are systematically modified to observe changes in outputs, and Automated Circuit Discovery (ACDC) \citep{conmy_2023_towards}, which constructs a computational graph of the model to pinpoint key computational pathways and their influence on performance.
+One practical application of this methodology is to perform causal interventions on these identified components to assess their impact on the model's output. For instance, by altering the input to a particular attention head and observing the variation in output, researchers can infer the function being executed by that head. This was exemplified in our studies where modifying the inputs to the "OV matrix of attention head zero" in a transformer revealed its role in normalizing labels, thereby affecting the model’s ability to generalize across different input scales.
+Furthermore, mechanistic interpretability also includes quantifying the influence of these components. We devise to the end a "norm score" for attentin heads.
+\section{The Model}
+\subsection{Transformers}
+Transformers \citep{vaswani_2017_attention}, initially popularized for their SOTA performance in natural language processing (NLP) tasks \citep{brown_2020_language}, have demonstrated exceptional versatility by extending their capabilities to complex function mapping in contextual settings. These models leverage their self-attention mechanisms to process sequences of data in parallel. This characteristic allows them to effectively manage and interpret relationships between data points across large datasets without regard to their sequential proximity. Specifically, in the realm of learning direct mappings from input \(x\) to output \(y\) sequences, transformers treat these mappings as sequential data, thereby learning the underlying functional relationships from the provided in-context examples \citep{garg_2023_what}. Such an approach has been successfully applied to a variety of function classes including linear functions, sparse linear functions, and even intricate models like decision trees and neural networks, directly during inference. The adaptability of transformers to assimilate new data rapidly and update their understanding of function mappings without the need for retraining underscores their potential in applications far beyond their initial NLP use cases.
+\subsection{In-context Linear Regression}
+We train a decoder-only transformer model on the linear regression task of \citep{garg_2023_what}, specifically opting for a 3-layer configuration that processes 5-dimensional data points. The training regime employs prompts structured as sequences of input-output pairs: 
+\[
+f(x) = \{x_1, f(x_1), x_2, f(x_2), \dots, x_k, f(x_k)\} \quad \mbox{with} \quad f(x) = x \cdot \mathbf{w}^T,
+\]
+where \( \mathbf{w} \) represents the weight matrix, and both \( x \) values and weights are sampled from an isotropic Gaussian distribution. This training process utilizes curriculum learning strategies \citep{bengio_2009_curriculum}. The model demonstrates a marked improvement in performance over the training period, achieving a mean squared error (MSE) of approximately 2, which significantly reduces to about 0.4 on the final five predictions.
+\newpage
+\begin{figure}[htbp]
+\centering
+\includegraphics[width=0.8\linewidth]{image1.png}
+\caption{Loss achieved by the model}
+\end{figure}
+\section{Computational Graph}
+We then visualize the importance of each of the model’s computations via Automated Circuit Discovery \citep{conmy_2023_towards}. This approach views models as computational graphs \citep{geiger_2021_causal}, and informs us on how much each component of the model makes use of the output of previous components by measuring the loss after a causal intervention on their inputs.
+\begin{figure}[htbp]
+\centering
+\includegraphics[width=0.8\linewidth]{image4.png}
+\caption{Computational graph}
+\end{figure}
+From ACDC we gather that the embedding is the most important component of the computation, and that MLP2 is the last significant computation to take place, and is thus a good candidate for further enquiry.
+
+\section{Embedding analysis}
+The embedding appears to be accessed by a variety of components. To study it we use activation patching \citep{zhang_2023_towards}, and observe the impact on loss after replacing the input to each component at the x and y position respectively with some corrupt values.
+We then plot according to the impact of this operation on model loss:
+\begin{figure}[htbp]
+\centering
+\includegraphics[width=0.8\linewidth]{image5.png}
+\caption{Loss increase by component when the embedding is ablated}
+\end{figure}
+\newpage
+We note that A0.0 in particular makes use of xs to a very large extent, while it does not attend to ys.
+
+\section{Probing the Weights Out}
+Building on the intuition that transformers perform gradient descent for in-context linear regression through their forward passes \citep{vonoswald_2023_transformers}, we theorize the MLP’s parameters should be close to the actual linear regression weights for each sequence. We find a mechanistic confirmation of this through a linear probe  \citep{alain_2018_understanding}.
+
+We feed into a linear regression the concatenated activations of MLPs at each point of the sequence, and train for 1.5M steps with learning rate 1.0e-05. We minimize mean squared error. The final loss achieved by the probe is 0.4 with base loss around 1, suggesting MLP2’s activations do indeed contain a sizable fraction of the probed weight as expected.
+
+\begin{figure}[htbp]
+\centering
+\includegraphics[width=0.6\linewidth]{image11.png}
+\caption{Loss achieved by the probe}
+\end{figure}
+
+We further selectively ablate each layer by replacing the corresponding inputs to the probe with activations from another sequence, and confirm MLP2 is the layer containing most of the weights. We nevertheless observe that the amount of information about the weights increases with each layer, in line with the idea that they correspond to progressive a gradient updates in the direction of the weights.
+
+\begin{figure}[htbp]
+\centering
+\includegraphics[width=0.6\linewidth]{image6.png}
+\caption{Increase in loss when each MLP layer is ablated}
+\end{figure}
+
+\section{Normalizing heads}
+We further investigate head 0.0 in the model, as it has the most significant edges in the computational graph (disrupting its inputs or outputs will drastically increase overall loss). 
+\subsection{Numerical patching}
+We adapt classical activation patching \citep{zhang_2023_towards} to the algorithmic nature of the model, and define 2 sequences: \\
+\noindent
+\textbf{base:} 
+\[
+x_1 = (1, 1, 1), \quad y_1 = 1, \quad x_2 = (1, 1, 1), \quad y_2 = 1, \quad \ldots, \quad x_k = (1, 1, 1), \quad y_k = 1
+\]
+
+\noindent
+\textbf{patch:} 
+\[
+x_1 = (p_1, p_2, p_3), \quad y_1 = 1, \quad x_2 = (p_1, p_2, p_3), \quad y_2 = 1, \quad \ldots, \quad x_k = (p_1, p_2, p_3), \quad y_k = 1
+\]
+We run the model on the base sequence, but replace the input to A0.0 with the embedding of the patch sequence at x positions. This enables us to observe the effect of varying xs on the output of the model. Ys in the base sequence are not modified, and arbitrary set at 1.
+
+We then infer the operation performed by A0.0 from the relationship between x1 x2 x3 and y. We generate 13512 random 3d points, and then patch them in the base sequence. We find:
+
+\begin{table}[htbp]
+  \caption{Correlation and p-value Analysis}  % Updated table title
+  \label{correlation-table}  % Updated label for referencing
+  \centering
+  \begin{tabular}{lccc}  % Changed from {lll} to {lccc} to fit the data format
+    \toprule
+    \multicolumn{4}{c}{Analysis Results} \\  % Changed the number of columns in \multicolumn to span all columns
+    \cmidrule(r){1-4}  % Changed the range to 1-4 to fit the new column structure
+    & $x_1$ & $x_2$ & $x_3$ \\  % Added headers for the x-values
+    \midrule
+    Correlation with $y$ & -0.859195 & -0.301711 & -0.205789 \\
+    p-value & 0.0 & $\sim 0$ ($2.28480 \times 10^{-282}$) & $\sim 0$ ($3.77526 \times 10^{-129}$) \\
+    \bottomrule
+  \end{tabular}
+\end{table}
+As $x_1$ has a strongly negative correlation with $y$, we plot $x_1$ against $y$ and we get:
+
+\begin{figure}[htbp]
+\centering
+\includegraphics[width=0.8\linewidth]{image8.png}
+\caption{Plot of $y$ over $x_1$}
+\end{figure}
+
+\newpage
+
+This suggests the head is approximately dividing $y$s by $x$s. Since they are linearly related ($y = x \cdot w^T$), this operation could effectively normalize the scale of $y$s across different values of $x$s, making them a dimensionless quantity. This can help in cases where the magnitude of $x$s affects the performance of the model, and as \citep{garg_2023_what} note, this model's performance does degrade somewhat when inputs are scaled:
+
+\begin{figure}[htbp]
+\centering
+\includegraphics[width=0.8\linewidth]{image19.png}
+\caption{Loss over different orders of magnitude of x}
+\end{figure}
+
+\subsection{The OV matrix as a function}
+We can further infer the function being performed by A0.0 by constraining ourselves to the mono dimensional case, and defining the patch sequence as follows:
+\[
+x_1 = (p_1, p_1, p_1), \quad y_1 = 1, \quad x_2 = (p_1, p_1, p_1), \quad y_2 = 1, \quad \ldots, \quad x_k = (p_1, p_1, p_1), \quad y_k = 1
+\]
+
+We are then able to calculate the correlation and \( p \)-value for \( x_1 \) (it’s the same for \( x_2 \) and \( x_3 \) as \( x_1=x_2=x_3 \)).
+
+%\begin{table}[htbp]
+%  \caption{Relationship between $x_1$ and $y$}  % Table title
+%  \centering
+%  \begin{tabular}{lcc}  % Adjusted to have one label column and two data columns
+%    \toprule
+%    \multicolumn{3}{c}{Analysis Results} \\  % Spanning across all columns
+%    \cmidrule(r){1-3}  % Adjusting the range to span the new number of columns
+%    Measurement & Value &  \\  % Adjusted headers for clarity and relevance
+%    \midrule
+%    Correlation with $y$ & -0.88 & \\  % Data for correlation
+%    p-value & 0.0 & \\  % Data for p-value
+%    \bottomrule
+%  \end{tabular}
+%\end{table}
+Finally, we can plot $x1$ against $y$:
+
+\begin{figure}[htbp]
+\centering
+\includegraphics[width=0.5\linewidth]{image12.png}
+\caption{Values of $y$ after patching in $x_1$ (log scale)}
+\end{figure}
+
+\newpage
+
+\begin{figure}[htbp]
+\centering
+\includegraphics[width=0.5\linewidth]{image3.png}
+\caption{Values of $y$ after patching in $x_1$}
+\end{figure}
+We note an interesting bump corresponding to x=0, and thorize it’s due to the model implementing a constant where it can’t compute a division by x1 = 0.
+
+\subsection{Attention pattern}
+We further analyze A0.0’s attention pattern:
+\begin{figure}[htbp]
+\centering
+\includegraphics[width=0.5\linewidth]{image10.png}
+\caption{Attention pattern of head zero in the first transformer block}
+\end{figure}
+
+We note that A0.0 seems to move information to the y positions from the preceding x, and we compute the mean of each element with query at a y position and the key at the preceding xs’s position, and we use its average to quantify how much A0.0 is actually moving information from xs to the next ys:\\ \\
+$\mu=\frac{1}{n} \sum_{i \in I_{\mbox{\tiny odd}}} A_{i, i-1}$\\ \\
+We obtain an average attention score between ys and their preceding xs of: \textbf{0.8943}
+
+\subsection{Eigenvalues}
+We find eigenvalues of the OV matrix to be strongly negative indicating an inversion of x values, which is in line with our hypothesis of a normalizing head, as we can conceptualize the division as inverting xs and multiplying ys by them.
+
+\begin{figure}[htbp]
+\centering
+\includegraphics[width=0.6\linewidth]{image9.png}
+\caption{Eigenvalues of the OV matrix}
+\end{figure}
+The sum of the eigenvalues is: \textbf{-1.3669.}
+
+\subsection{Projections of xs onto eigenvalues}
+Lastly, we verify that values at x positions are indeed what the OV matrix is selecting by computing their projection onto OV’s significant eigenvectors, which account for 83\% of the variance. We define a significant eigenvector as one with an absolute value greater than 10-1. We take the average ratio of xs’ projections onto OV’s significant eigenvectors as an indication of whether xs project more onto OV or not, with values > 1 indicating greater projection of xs and vice versa.
+
+$$
+\begin{array}{cc}
+T & =0.1 \\
+H & =0 \\
+M & =\mathrm{AB}_{\mbox{\scriptsize matrix}}
+\end{array}
+$$
+$$
+\begin{array}{rc}
+\left(\lambda_i, \mathbf{v}_i\right) & \mbox{ such that } M \mathbf{v}_i=\lambda_i \mathbf{v}_i \\
+S & =\left\{i \mid |\lambda_i| >T\right\}
+\end{array}
+$$
+
+For each $i \in S$:
+$$
+\begin{array}{rc}
+P_{\mbox{\scriptsize even}} & =\sum_{j \in \mbox{\scriptsize even indices}}\left|\mathbf{e}_{\mbox{\scriptsize input}, j} \cdot \mathbf{v}_i\right| \\
+P_{\mbox{\scriptsize odd}} & =\sum_{j \in \mbox{\scriptsize odd indices}}\left|\mathbf{e}_{\mbox{\scriptsize input}, j} \cdot \mathbf{v}_i\right| \\
+H & +=\frac{P_{\mbox{\scriptsize even}}}{P_{\mbox{\scriptsize odd}}} \\
+\mbox{Final Score} & =\frac{H}{|S|-1}
+\end{array}
+$$
+The resulting projections score is \textbf{1.9764} calculated on the top 6 eigenvectors, indicating that the xs project almost twice as much as the ys. This further confirms that the OV matrix is selecting its information from xs.
+
+
+We further visualize projections onto 2 of OV’s main eigenvectors for each point in a batch of 32 sequences.
+
+\begin{figure}[htbp]
+\centering
+\includegraphics[width=0.6\linewidth]{eig4.png}
+\caption{Projections of different positions in the sequence onto eigenvector 4}
+\end{figure}
+
+\begin{figure}[htbp]
+\centering
+\includegraphics[width=0.6\linewidth]{eig5.png}
+\caption{Projections of different positions in the sequence onto eigenvector 5}
+\end{figure}
+
+
+\subsection{Projections of xs onto eigenvalues}
+Taken together, we can use the attention, eigenvalues, projections, and position of the head to define a norm score (after applying min-max normalization to each of the 4). We include a penalty for heads later in the model as they are unlikely to be performing actual normalization, as MLPs compute estimate increasingly accurate estimates of the weights.
+
+Let:
+
+Attention Scores: 
+$$\mu=\frac{1}{n} \sum_{i \in I_{\mbox{odd}}} A_{i, i-1}$$
+
+Sum of All Eigenvalues: 
+$$\Sigma \lambda=\sum_i \lambda_i$$
+
+Position: 
+$$P=\frac{\mbox{Current Block Index}}{\mbox{Number of Layers in the Model}}$$
+
+Projections Score: 
+$$PS=\frac{1}{|S|-1}\left(\sum_{i \in S} \frac{P_{\mbox{even}}}{P_{\mbox{odd}}}\right)$$
+
+where:
+
+$$
+T = 0.1, \quad M=\mathrm{AB}_{\mbox{matrix}},
+$$
+$$
+(\lambda_i, \mathbf{v}_i) \mbox{ such that } M \mathbf{v}_i=\lambda_i \mathbf{v}_i,
+$$
+$$
+S = \{i \mid |\lambda_i| > T\},
+$$
+$$
+P_{\mbox{even}} = \sum_{j \in \mbox{even indices}}|\mathbf{e}_{\mbox{input}, j} \cdot \mathbf{v}_i|,
+$$
+$$
+P_{\mbox{odd}} = \sum_{j \in \mbox{odd indices}}|\mathbf{e}_{\mbox{input}, j} \cdot \mathbf{v}_i|.
+$$
+
+Then, the 'norm score' (NS) is given by:
+$$
+NS=\frac{1}{4}(\mu+\Sigma \lambda+P+PS)
+$$
+Using this norm score we find the model has 2 normalizing heads: head 0 layer 0 and head 0 layer 1:
+
+\begin{figure}[htbp]
+\centering
+\includegraphics[width=0.6\linewidth]{image2.png}
+\caption{Norm scores per head}
+\end{figure}
+
+\section{Induction and Copy Heads}
+We further check whether the model develops any induction heads \citep{olsson_2022_incontext} or copy heads, as defined per their copy score. We find no induction head, and an average induction score across all heads of just 0.0172. We further find only one weak copy head, with copy score of 0.44.
+\begin{figure}[htbp]
+\centering
+\includegraphics[width=0.6\linewidth]{image20.png}
+\caption{Induction scores per head}
+\end{figure}
+
+\begin{figure}[htbp]
+\centering
+\includegraphics[width=0.6\linewidth]{image16.png}
+\caption{Copy scores per head}
+\end{figure}
+
+\newpage
+
+\section{Phase transition}
+\citep{garg_2023_what} note that there is a phase transition in the model’s loss function when trained on more than 10 dimensions without curriculum learning. We therefore train a 3L model at 20 dimensions, and identify the head with the highest norm score, and then record overall loss (blue), restricted loss (red, head can only read xs, ys are ablated) and excluded loss (orange, xs ablated). We observe the following phase transition.
+
+\begin{figure}[htbp]
+\centering
+\includegraphics[width=0.6\linewidth]{image17.png}
+\caption{Overall, excluded and restricted loss during training}
+\end{figure}
+
+We measure total loss and loss on the last 5 positions for the model both:
+\begin{itemize}
+    \item before the phase transition (epoch 17k), total=15.179, last 5=14.017
+    \item after phase transition (epoch 19k), total=~11.419, last 5=8.453
+\end{itemize}
+We then roll back weights to before the phase transition for each of the components and measure the increase in loss over the last 5 positions, copy and norm scores (A stands for attention head, M for MLP, E for embedding, and U for unembedding):
+
+\begin{table}[htbp]
+  \caption{Model performance after rolling back weights for each component}  % Updated table title
+  \centering
+  \begin{tabular}{lcccc}  % Adjusted for one additional column
+    \toprule
+    \cmidrule(r){1-5}  % Adjusted range to 1-5
+    Removed Component & Performance & Loss Increase & Norm Score & Copy Score \\  % Column headers
+    \midrule
+    $['A', 2, 0]$ & 15.19781 & 6.8101635 & 0.281563 & 0.7316899 \\
+    $['A', 2, 1]$ & 13.549149 & 5.161502 & 0.1832637 & -0.2062406 \\
+    $['A', 1, 1]$ & 12.014914 & 3.627267 & 0.4894352 & -0.9112423 \\
+    $['A', 0, 0]$ & 10.951018 & 2.5633717 & 0.8854116 & -0.8547632 \\
+    $['E']$ & 10.518488 & 2.1308413 & & \\
+    $['M', 0]$ & 10.274035 & 1.8863888 & & \\
+    $['U']$ & 9.693608 & 1.3059616 & & \\
+    $['M', 1]$ & 9.657602 & 1.2699556 & & \\
+    $['M', 2]$ & 9.265495 & 0.8778486 & & \\
+    $['A', 0, 1]$ & 9.168398 & 0.7807512 & 0.6227482 & -0.7797208 \\
+    $['A', 1, 0]$ & 8.273996 & -0.11365032 & 0.3698539 & -0.8096694 \\
+    \bottomrule
+  \end{tabular}
+\end{table}
+
+\newpage
+We further graph the top 5 components and their norm/copy scores:
+\begin{figure}[htbp]
+\centering
+\includegraphics[width=0.6\linewidth]{image14.png}
+\caption{Loss increment and copy/norm scores for the 4 most important components}
+\end{figure}
+We note that the transition seems to be characterized by the development of norm and copy heads, as three out of 4 of the most important heads in this transition are either copy or norm head.
+
+\section{Are norm heads performing a gradient descent step?}
+
+An objection might arise suggesting that the norm head we are examining is merely executing gradient descent, akin to mechanisms discussed in related works such as \citep{vonoswald_2023_transformers}. However, we show the function implemented by the head in section 7.2, and it's strictly positive even for negative values of $x$, which would warrant a negative weight in the context of gradient descent. Moreover, our linear probe, as discussed in section 6, indicates MLPs play a crucial tole in these gradient descent computations, not the particular attention head (head 0, layer 0) under scrutiny.  Additionally, the discontinuity we observed around division by 0 in Section 7.2 would be illogical under a gradient descent framework, as multiplication and subtraction by zero are defined and continuous, while it is the expected behavior for a division to have such a discontinuity.
+
+\section{Larger model}
+
+
+We train a more complex transformer consisting of 6 layers and 4 heads, specifically targeting a 20-dimensional input space using curriculum learning \citep{bengio_2009_curriculum}. The final performance metrics of this model are detailed in the table below, which includes various forms of loss measurements. Notably, \textit{restricted loss} indicates the model's performance when the norm head (defined by the highest norm score) is limited to accessing only $x$ values. In contrast, \textit{excluded loss} measures performance when the norm head is prohibited from accessing $x$ values. \textit{Excess loss} is the ratio of the model's loss to the baseline Ordinary Least Squares (OLS) loss.
+
+\begin{table}[htbp]
+  \caption{Results on a larger model}
+  \centering
+  \begin{tabular}{lcccc} 
+    \toprule
+    Loss Type & Overall Loss & Excess Loss & Excluded Loss & Restricted Loss \\
+    \midrule
+    Values & 8.6138 & 1.6817 & 18.7864 & 8.2151 \\
+    \bottomrule
+  \end{tabular}
+\end{table}
+
+\newpage
+
+\section{Conclusions}
+In this paper, we demonstrate the application of mechanistic interpretability on numerical transformers, extending the traditional use of these techniques beyond their typical domain in natural language processing. We introduce the technique of numerical patching, a method for isolating and understanding the specific functions implemented by the OV matrix of an attention head within the transformer model. Numerical patching has enabled us to show the function implemented by a specific attention head. By employing this method, we have identified a 'normalization head'. Our technique could offer a new lens through which the machine learning community can enhance the transparency and functionality of machine learning models.
+
+
+
+
+
+\newpage
+\bibliographystyle{plainnat}  % This defines the style of the bibliography
+\bibliography{references}  % This points to the file references.bib, without the file extension
+
+\end{document}
