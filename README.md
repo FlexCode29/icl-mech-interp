@@ -1,4 +1,4 @@
-Code for the experiments and graphs in [paper](./paper.pdf)
+Code for the experiments and graphs in our [paper](./paper.pdf)
 
 
 ### Installation:
